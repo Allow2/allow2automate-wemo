@@ -22,9 +22,9 @@ import TableBody from '@material-ui/core/TableBody';
 import TableRow from '@material-ui/core/TableRow';
 import TableCell from '@material-ui/core/TableCell';
 import Button from '@material-ui/core/Button';
-// import Avatar from '@material-ui/core/Avatar';
 import {deviceTokens, deviceImages} from '../constants';
 import Checkbox from './Checkbox';
+// import Avatar from '@material-ui/core/Avatar';
 
 // var dialogs = Dialogs({});
 
@@ -64,7 +64,6 @@ class TabContent extends Component {
         console.log(device, token);
         this.props.assign(device, token);
     }
-
 
     render() {
         if (!this.props || !this.props.plugin || !this.props.data) {
@@ -174,7 +173,7 @@ class TabContent extends Component {
                                         <TableRow key={device.device.UDN}>
                                             <TableCell>
                                                 {imageName &&
-                                                <img width="40" height="40" src={'assets/img/' + imageName + '.png'}/>
+                                                <img width="40" height="40" src={ path.join(pluginPath, 'img', imageName + '.png') }/>
                                                 }
                                             </TableCell>
                                             <TableCell>

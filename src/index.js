@@ -26,6 +26,7 @@ function plugin(context) {
 
     var devices = null;
     var state = null;
+
     //
     // onLoad (advisable): called on the main process when this plugin is loaded, the existing configuration is supplied if it exists
     //

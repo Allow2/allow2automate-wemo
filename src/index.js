@@ -42,21 +42,28 @@ function plugin(context) {
                 context.configurationUpdate(state);
             }
         });
-        context.ipc.on('setBinaryState', function(event, params) {
+
+        console.log('context', context);
+        context.ipcMain.on('setBinaryState', async function(event, params) {
             console.log('main setBinaryState', params);
-            devices.setBinaryState(params.UDN, params.state, function(err, response) {
-                console.log('response:', params.UDN, response);
+            const { err, response } = devices.setBinaryState(params.UDN, params.state);
 
-                var device = state.devices[params.UDN];
-                device.active = false;
-                if (!err && ( response.BinaryState != undefined )) {
-                    device.state = ( response.BinaryState != '0' );
-                }
-                const devices = Object.assign(state.devices, {[params.UDN]: device} );
-                state = Object.assign(state, { devices: devices });
-                context.configurationUpdate(state);
+            console.log('response:', params.UDN, err, response);
 
-            }.bind(this));
+            if (err) {
+            	return [err];
+            }
+            if (response.BinaryState === undefined) {
+            	return [new Error('Unknown Error')];
+            }
+
+            var device = state.devices[params.UDN];
+            device.active = false;
+            device.state = ( response.BinaryState != '0' );
+            const devices = Object.assign(state.devices, {[params.UDN]: device} );
+            state = Object.assign(state, { devices: devices });
+            context.configurationUpdate(state);
+			return [null, "ok"];
         });
     };
 

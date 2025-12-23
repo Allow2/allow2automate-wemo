@@ -83,12 +83,20 @@ export default class Wemo {
         }.bind(this));
     }
 
-    setBinaryState(udn, binaryState, callback) {
-        let client = this.clients[udn];
-        if (!client) {
-            return callback && callback(new Error('not visible'));
-        }
-        client.setBinaryState(binaryState, callback);
+    setBinaryState(udn, binaryState) {
+	    return new Promise((resolve, reject) => {
+		    let client = this.clients[udn];
+		    if (!client) {
+			    return callback && reject(new Error('not visible'));
+		    }
+		    client.setBinaryState(binaryState, (err, result) => {
+		    	console.log(err, result);
+		    	if (err) {
+				    return reject(err);
+			    }
+		    	resolve(result);
+		    });
+	    });
     }
 
 }

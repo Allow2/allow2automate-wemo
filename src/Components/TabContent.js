@@ -46,7 +46,7 @@ class TabContent extends Component {
         // }.bind(this));
     };
 
-    toggleCheckbox(device, isChecked) {
+    async toggleCheckbox(device, isChecked) {
         //this.props.onDeviceActive( device.device.UDN, true );
         let newData = Object.assign({}, this.props.data);
         var newDevices = (this.props.data.devices || {});
@@ -54,10 +54,15 @@ class TabContent extends Component {
         newDevices[device.device.UDN].active = isChecked;
         newData.devices = newDevices;
         this.props.configurationUpdate(newData);
-        this.props.ipc.send('setBinaryState', {
+        console.log('ipcRenderer', this.props.ipc);
+	    const { err, result } = await this.props.ipc.invoke('setBinaryState', {
             UDN: device.device.UDN,
             state: isChecked ? 1 : 0
         });
+	    console.log(err, result);
+        if (err) {
+        	console.log(err);
+        }
     }
 
     assign(device, token) {

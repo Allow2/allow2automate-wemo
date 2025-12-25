@@ -1,7 +1,7 @@
 {
   "name": "@allow2/allow2automate-wemo",
   "shortName": "wemo",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Enable Allow2Automate the ability to control wemo devices",
   "main": "dist/index.js",
   "module": "dist/index.es.js",

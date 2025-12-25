@@ -1,20 +1,134 @@
 {
-  "name": "allow2automate-wemo",
+  "name": "@allow2/allow2automate-wemo",
   "shortName": "wemo",
   "version": "0.0.4",
   "description": "Enable Allow2Automate the ability to control wemo devices",
-  "main": "./index.js",
+  "main": "dist/index.js",
+  "module": "dist/index.es.js",
+  "jsnext:main": "dist/index.es.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "react-scripts test --env=jsdom",
+    "build": "rollup -c",
+    "start": "rollup -c -w",
+    "prepublish": "npm run build",
+    "predeploy": "cd example && npm install && npm run build",
+    "deploy": "gh-pages -d example/build"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/Allow2/allow2automate-wemo"
   },
-  "allow2Token":"2ndlJj1Mg2Pw8iHi",
-  "keywords" : [
-    "allow2automate", "allow2", "wemo"
+  "bugs": {
+    "url": "https://github.com/Allow2/allow2automate-wemo/issues"
+  },
+  "homepage": "https://github.com/Allow2/allow2automate-wemo#readme",
+  "allow2Token": "2ndlJj1Mg2Pw8iHi",
+  "keywords": [
+    "allow2automate",
+    "allow2",
+    "wemo",
+    "plugin",
+    "iot",
+    "parental-controls",
+    "smart-home"
   ],
-  "author": "Allow2",
-  "license": "Apache-2.0"
+  "author": {
+    "name": "Allow2",
+    "url": "https://allow2.com"
+  },
+  "license": "MIT",
+  "allow2automate": {
+    "plugin": true,
+    "pluginId": "allow2automate-wemo",
+    "displayName": "Wemo Smart Devices",
+    "category": "IoT",
+    "permissions": [
+      "network",
+      "configuration"
+    ],
+    "minAppVersion": "2.0.0",
+    "api": {
+      "actions": [
+        {
+          "id": "discover",
+          "name": "Discover Devices",
+          "description": "Discover Wemo devices on the network"
+        },
+        {
+          "id": "turnOn",
+          "name": "Turn On",
+          "description": "Turn on a Wemo device"
+        },
+        {
+          "id": "turnOff",
+          "name": "Turn Off",
+          "description": "Turn off a Wemo device"
+        },
+        {
+          "id": "getState",
+          "name": "Get State",
+          "description": "Get current state of Wemo device"
+        }
+      ],
+      "triggers": [
+        {
+          "id": "deviceDiscovered",
+          "name": "Device Discovered",
+          "description": "Triggered when a new Wemo device is discovered"
+        },
+        {
+          "id": "deviceStateChanged",
+          "name": "Device State Changed",
+          "description": "Triggered when Wemo device state changes"
+        },
+        {
+          "id": "deviceOffline",
+          "name": "Device Offline",
+          "description": "Triggered when Wemo device goes offline"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.13.9",
+    "wemo-client": "^0.15.0"
+  },
+  "peerDependencies": {
+    "react": "^16.0.0 || ^17.0.0",
+    "react-dom": "^16.0.0 || ^17.0.0",
+    "@material-ui/core": "^4.0.0"
+  },
+  "files": [
+    "dist",
+    "img"
+  ],
+  "devDependencies": {
+    "@babel/core": "^7.13.8",
+    "@babel/plugin-external-helpers": "^7.12.13",
+    "@babel/plugin-proposal-class-properties": "^7.0.0",
+    "@babel/plugin-proposal-decorators": "^7.0.0",
+    "@babel/plugin-proposal-do-expressions": "^7.0.0",
+    "@babel/plugin-proposal-export-default-from": "^7.0.0",
+    "@babel/plugin-proposal-export-namespace-from": "^7.0.0",
+    "@babel/plugin-proposal-function-bind": "^7.0.0",
+    "@babel/plugin-proposal-function-sent": "^7.0.0",
+    "@babel/plugin-proposal-json-strings": "^7.0.0",
+    "@babel/plugin-proposal-logical-assignment-operators": "^7.0.0",
+    "@babel/plugin-proposal-nullish-coalescing-operator": "^7.0.0",
+    "@babel/plugin-proposal-numeric-separator": "^7.0.0",
+    "@babel/plugin-proposal-optional-chaining": "^7.0.0",
+    "@babel/plugin-proposal-pipeline-operator": "^7.0.0",
+    "@babel/plugin-proposal-throw-expressions": "^7.0.0",
+    "@babel/plugin-syntax-dynamic-import": "^7.0.0",
+    "@babel/plugin-syntax-import-meta": "^7.0.0",
+    "@babel/plugin-transform-runtime": "^7.13.9",
+    "@babel/preset-env": "^7.13.9",
+    "@babel/preset-react": "^7.12.13",
+    "@rollup/plugin-babel": "^5.3.0",
+    "@rollup/plugin-commonjs": "^17.1.0",
+    "@rollup/plugin-node-resolve": "^11.2.0",
+    "rollup": "^2.40.0",
+    "rollup-plugin-peer-deps-external": "^2.2.4",
+    "rollup-plugin-postcss": "^4.0.0"
+  }
 }

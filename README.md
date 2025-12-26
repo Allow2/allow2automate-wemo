@@ -19,20 +19,14 @@ This plugin integrates Belkin Wemo smart devices with Allow2 parental controls, 
 
 ## Installation
 
-### Via NPM
+1. Run allow2automate on your machine:
+- [https://apps.apple.com/au/app/allow2automate/id1369546793?mt=12](Mac App Store)
+- [](Windows App Store)
+- [](Linux Snap Store)
 
-```bash
-npm install @allow2/allow2automate-wemo
-```
+2. Log in using your Allow2 Parent Account
 
-### Via Git
-
-```bash
-git clone https://github.com/Allow2/allow2automate-wemo.git
-cd allow2automate-wemo
-npm install
-npm run build
-```
+3. 
 
 ## Configuration
 

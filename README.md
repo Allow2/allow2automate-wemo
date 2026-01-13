@@ -21,8 +21,8 @@ This plugin integrates Belkin Wemo smart devices with Allow2 parental controls, 
 
 1. Run allow2automate on your machine:
 - [https://apps.apple.com/au/app/allow2automate/id1369546793?mt=12](Mac App Store)
-- [](Windows App Store)
-- [](Linux Snap Store)
+- Windows App Store (to be completed)
+- [https://snapcraft.io/allow2automate](Linux Snap Store)
 
 2. Log in using your Allow2 Parent Account
 
@@ -178,6 +178,51 @@ plugin.on('quotaRenewed', async (event) => {
 - Wemo Light Switch
 - Wemo Mini
 - Wemo Dimmer
+
+## Architecture
+
+### Main Process Execution
+
+This plugin requires **main process execution** for SSDP device discovery. The plugin declares this requirement via:
+
+```javascript
+module.exports = {
+    plugin,
+    TabContent,
+    requiresMainProcess: true  // SSDP discovery needs main process
+};
+```
+
+When loaded in the main process, the plugin:
+1. Initializes Wemo client for SSDP network discovery
+2. Polls for devices every 10 seconds
+3. Persists discovered devices via `context.configurationUpdate()`
+4. Sends device updates to renderer via `context.sendToRenderer()`
+
+### Plugin Context API
+
+The main process receives a rich context object:
+
+```javascript
+function plugin(context) {
+    context.isMain              // true in main process
+    context.ipcMain             // Electron ipcMain for IPC handlers
+    context.configurationUpdate(state)  // Persist plugin configuration
+    context.statusUpdate(status)        // Update plugin status
+    context.sendToRenderer(channel, data)  // Send updates to UI
+}
+```
+
+### Device Discovery Flow
+
+1. **Main Process**: `Wemo.js` performs SSDP discovery
+2. **Device Found**: Device info persisted to state
+3. **UI Update**: Renderer notified via IPC
+4. **User Control**: UI sends commands via `setBinaryState` IPC handler
+
+For detailed main process documentation, see:
+- [Main Process Plugin Guide](/plugins/MAIN_PROCESS_PLUGINS.md)
+- [Template Documentation](/plugins/allow2automate-plugin/docs/MAIN_PROCESS.md)
 
 ## Development Setup
 

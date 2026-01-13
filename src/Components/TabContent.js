@@ -99,7 +99,7 @@ class TabContent extends Component {
         //console.log('wemo TabContent', key, this.props.data.devices, this.props.data.pairings);
         let pairings = this.props.data.pairings;
         const plugin = this.props.plugin;
-        const pluginPath = this.props.pluginPath;
+        const pluginDir = this.props.pluginDir || path.dirname(this.props.pluginPath); // Use pluginDir, fallback to dirname(pluginPath)
         // const Checkbox = this.props.Checkbox;
         return (
             <div>
@@ -126,7 +126,7 @@ class TabContent extends Component {
                                         <TableCell>
                                             { imageName &&
                                             <img width="40" height="40"
-                                                 src={ path.join(pluginPath, 'img', imageName + '.png') }/>
+                                                 src={ `file://${path.join(pluginDir, 'img', imageName + '.png')}` }/>
                                             }
                                         </TableCell>
                                         <TableCell>
@@ -178,7 +178,7 @@ class TabContent extends Component {
                                         <TableRow key={device.device.UDN}>
                                             <TableCell>
                                                 {imageName &&
-                                                <img width="40" height="40" src={ path.join(pluginPath, 'img', imageName + '.png') }/>
+                                                <img width="40" height="40" src={ `file://${path.join(pluginDir, 'img', imageName + '.png')}` }/>
                                                 }
                                             </TableCell>
                                             <TableCell>

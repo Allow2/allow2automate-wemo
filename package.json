@@ -11,6 +11,8 @@
     "build": "rollup -c",
     "start": "rollup -c -w",
     "prepublish": "npm run build",
+    "postinstall": "npm run remove-peer-deps || true",
+    "remove-peer-deps": "rm -rf node_modules/react node_modules/react-dom node_modules/@material-ui node_modules/react-is node_modules/react-transition-group node_modules/hoist-non-react-statics || true",
     "predeploy": "cd example && npm install && npm run build",
     "deploy": "gh-pages -d example/build"
   },
@@ -42,6 +44,7 @@
     "pluginId": "allow2automate-wemo",
     "displayName": "Wemo Smart Devices",
     "category": "IoT",
+    "requiresMainProcess": true,
     "permissions": [
       "network",
       "configuration"

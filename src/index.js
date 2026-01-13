@@ -31,11 +31,19 @@ function plugin(context) {
     // onLoad (advisable): called on the main process when this plugin is loaded, the existing configuration is supplied if it exists
     //
     wemo.onLoad = function(loadState) {
-        console.log('wemo.onload', state);
-        state = loadState;
+        console.error('[Wemo Plugin] ✅ onLoad called in main process');
+        console.log('wemo.onload', loadState);
 
+        // Initialize state with devices object
+        state = loadState || {};
+        if (!state.devices) {
+            state.devices = {};
+        }
+
+        console.error('[Wemo Plugin] Creating Wemo discovery instance...');
         devices = new Wemo({
             onDeviceUpdate: (data) => {
+                console.error('[Wemo Plugin] 📡 Device update callback:', Object.keys(data));
                 console.log('deviceUpdate', data, state);
                 const devices = Object.assign(state.devices, data);
                 state = Object.assign(state, { devices: devices });
@@ -43,6 +51,7 @@ function plugin(context) {
             }
         });
 
+        console.error('[Wemo Plugin] Wemo instance created, discovery should be running');
         console.log('context', context);
         context.ipcMain.on('setBinaryState', async function(event, params) {
             console.log('main setBinaryState', params);
@@ -97,5 +106,6 @@ function plugin(context) {
 
 module.exports = {
     plugin,
-    TabContent
+    TabContent,
+    requiresMainProcess: true  // Wemo needs main process for SSDP device discovery
 };

@@ -24,27 +24,33 @@ export default class Wemo {
     listener = null;
 
     constructor(listener) {
+        console.error('[Wemo Plugin] ✅ Constructor called - starting discovery');
         this.listener = listener;
         this.pollDevices();
         setInterval(this.pollDevices.bind(this), 10000);
+        console.error('[Wemo Plugin] Discovery interval set to 10 seconds');
     }
 
     // need to call this a few times (and every so often) to discover all devices, and devices may change.
     pollDevices() {
+        console.error('[Wemo Plugin] 🔍 pollDevices() called - starting SSDP discovery...');
 
         // the callback MAY be called if an existing device changes, so we need to cope with that.
         this.wemo.discover(function(err, deviceInfo) {
 
             if (err) {
-                console.log('discovery error', err);
+                console.error('[Wemo Plugin] ❌ Discovery error:', err);
                 return;
             }
 
+            console.error('[Wemo Plugin] ✅✅✅ DEVICE FOUND:', deviceInfo.friendlyName, deviceInfo.serialNumber);
+            console.error('[Wemo Plugin] Device details:', JSON.stringify(deviceInfo, null, 2));
             console.log('Wemo Device Found', deviceInfo.friendlyName, deviceInfo.serialNumber);
 
             // Get the client for the found device
             var client = this.wemo.client(deviceInfo);
 
+            console.error('[Wemo Plugin] Created client for UDN:', client.UDN);
             this.clients[client.UDN] = client;
 
             this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({

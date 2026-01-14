@@ -22,6 +22,9 @@ import TableBody from '@material-ui/core/TableBody';
 import TableRow from '@material-ui/core/TableRow';
 import TableCell from '@material-ui/core/TableCell';
 import Button from '@material-ui/core/Button';
+import Tabs from '@material-ui/core/Tabs';
+import Tab from '@material-ui/core/Tab';
+import Box from '@material-ui/core/Box';
 import {deviceTokens, deviceImages} from '../constants';
 import Checkbox from './Checkbox';
 // import Avatar from '@material-ui/core/Avatar';
@@ -32,6 +35,10 @@ class TabContent extends Component {
 
     constructor(...args) {
         super(...args);
+
+        this.state = {
+            currentTab: 0
+        };
 
         // this.props.ipc.on('setBinaryStateResponse', function (event, UDN, err, response) {
         //     console.log('setBinaryStateResponse', event, UDN, err, response);
@@ -44,6 +51,10 @@ class TabContent extends Component {
         //     // device.state = ( response.BinaryState != '0' );
         //     // this.props.onDeviceUpdate({[UDN]: device});
         // }.bind(this));
+    };
+
+    handleTabChange = (event, newValue) => {
+        this.setState({ currentTab: newValue });
     };
 
     async toggleCheckbox(device, isChecked) {
@@ -99,18 +110,36 @@ class TabContent extends Component {
         //console.log('wemo TabContent', key, this.props.data.devices, this.props.data.pairings);
         let pairings = this.props.data.pairings;
         const plugin = this.props.plugin;
-        const pluginDir = this.props.pluginDir || path.dirname(this.props.pluginPath); // Use pluginDir, fallback to dirname(pluginPath)
+        const pluginDir = this.props.pluginDir;
+        const { currentTab } = this.state;
         // const Checkbox = this.props.Checkbox;
+
         return (
             <div>
-                { devices.supported.length < 1 &&
-                <div style={{ textAlign: "center" }}>
-                    <h1>No Devices Found</h1>
-                    <p style={{ width:"75%", margin: "auto" }}>Allow2Automate will auto-discover Wemo devices on your network and list them here when found.</p>
-                </div>
-                }
-                { devices.supported.length > 0 &&
-                <Table>
+                {/* Tabs for Devices and Unsupported */}
+                <Tabs
+                    value={currentTab}
+                    onChange={this.handleTabChange}
+                    indicatorColor="primary"
+                    textColor="primary"
+                >
+                    <Tab label="Devices" />
+                    {devices.notSupported.length > 0 && (
+                        <Tab label="Unsupported" />
+                    )}
+                </Tabs>
+
+                {/* Devices Tab */}
+                {currentTab === 0 && (
+                    <Box p={3}>
+                        { devices.supported.length < 1 && (
+                            <div style={{ textAlign: "center" }}>
+                                <h1>No Devices Found</h1>
+                                <p style={{ width:"75%", margin: "auto" }}>Allow2Automate will auto-discover Wemo devices on your network and list them here when found.</p>
+                            </div>
+                        )}
+                        { devices.supported.length > 0 && (
+                        <Table>
                     <TableBody>
                         { devices.supported.map(function (device) {
                                 let token = deviceTokens[device.device.device.modelName];
@@ -163,13 +192,15 @@ class TabContent extends Component {
                         )}
                     </TableBody>
                 </Table>
-                }
+                        )}
+                    </Box>
+                )}
 
-                {devices.notSupported.length > 0 &&
-                <div>
-                    <h2>Unsupported Devices</h2>
-                    If you would like any of these devices supported, please contact us at support@allow2.com.
-                    <div>
+                {/* Unsupported Tab */}
+                {currentTab === 1 && devices.notSupported.length > 0 && (
+                    <Box p={3}>
+                        <h2>Unsupported Devices</h2>
+                        <p>If you would like any of these devices supported, please contact us at support@allow2.com.</p>
                         <Table>
                             <TableBody>
                                 {devices.notSupported.map((device) => {
@@ -196,9 +227,8 @@ class TabContent extends Component {
                                 }
                             </TableBody>
                         </Table>
-                    </div>
-                </div>
-                }
+                    </Box>
+                )}
             </div>
         );
     }

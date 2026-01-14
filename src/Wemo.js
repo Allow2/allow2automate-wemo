@@ -22,70 +22,106 @@ export default class Wemo {
     clients = {};
     wemo = new WemoClient();
     listener = null;
+    pollTimer = null;
+    enabled = true;
 
     constructor(listener) {
         console.error('[Wemo Plugin] ✅ Constructor called - starting discovery');
         this.listener = listener;
         this.pollDevices();
-        setInterval(this.pollDevices.bind(this), 10000);
+        this.pollTimer = setInterval(this.pollDevices.bind(this), 10000);
         console.error('[Wemo Plugin] Discovery interval set to 10 seconds');
+    }
+
+    setEnabled(enabled) {
+        console.error('[Wemo Plugin] setEnabled:', enabled);
+        this.enabled = enabled;
+        if (!enabled && this.pollTimer) {
+            console.error('[Wemo Plugin] Stopping discovery timer');
+            clearInterval(this.pollTimer);
+            this.pollTimer = null;
+        } else if (enabled && !this.pollTimer) {
+            console.error('[Wemo Plugin] Starting discovery timer');
+            this.pollDevices();
+            this.pollTimer = setInterval(this.pollDevices.bind(this), 10000);
+        }
     }
 
     // need to call this a few times (and every so often) to discover all devices, and devices may change.
     pollDevices() {
+        if (!this.enabled) {
+            console.error('[Wemo Plugin] ⏸️  pollDevices() skipped - plugin disabled');
+            return;
+        }
+
         console.error('[Wemo Plugin] 🔍 pollDevices() called - starting SSDP discovery...');
 
         // the callback MAY be called if an existing device changes, so we need to cope with that.
         this.wemo.discover(function(err, deviceInfo) {
 
             if (err) {
+                // Check if this is a Maker device being passed as an error (wemo-client quirk)
+                if (err.deviceType && err.deviceType === 'urn:Belkin:device:Maker:1') {
+                    console.error('[Wemo Plugin] ℹ️  Skipping unsupported Maker device:', err.friendlyName || 'Unknown');
+                    return;
+                }
+
+                // Log other real errors
                 console.error('[Wemo Plugin] ❌ Discovery error:', err);
+                console.error('[Wemo Plugin] Error details:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
                 return;
             }
 
-            console.error('[Wemo Plugin] ✅✅✅ DEVICE FOUND:', deviceInfo.friendlyName, deviceInfo.serialNumber);
-            console.error('[Wemo Plugin] Device details:', JSON.stringify(deviceInfo, null, 2));
-            console.log('Wemo Device Found', deviceInfo.friendlyName, deviceInfo.serialNumber);
+            // Wrap device setup in try-catch to prevent one device from blocking others
+            try {
+                console.error('[Wemo Plugin] ✅✅✅ DEVICE FOUND:', deviceInfo.friendlyName, deviceInfo.serialNumber);
+                console.error('[Wemo Plugin] Device details:', JSON.stringify(deviceInfo, null, 2));
+                console.log('Wemo Device Found', deviceInfo.friendlyName, deviceInfo.serialNumber);
 
-            // Get the client for the found device
-            var client = this.wemo.client(deviceInfo);
+                // Get the client for the found device
+                var client = this.wemo.client(deviceInfo);
 
-            console.error('[Wemo Plugin] Created client for UDN:', client.UDN);
-            this.clients[client.UDN] = client;
-
-            this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
-                [client.UDN]: {
-                    type: 'wemo',
-                    device: client,
-                    state: null
-                }
-            });
-
-            // todo: how do we correctly replace and clean up?
-            //var existing = clients[deviceInfo.serialNumber];
-            //if (existing) {
-            //    existing.on('error', null);
-            //    existing.on('binaryState', null);
-            //    //existing.destroy();
-            //}
-
-            client.on('error', function(err) {
-                console.log(deviceInfo.friendlyName, deviceInfo.serialNumber, 'Error: %s', err.code);
-            });
-
-            // Handle BinaryState events
-            client.on('binaryState', function(value) {
-                console.log(client.device.friendlyName, ' changed to', value == 1 ? 'on' : 'off');
+                console.error('[Wemo Plugin] Created client for UDN:', client.UDN);
+                this.clients[client.UDN] = client;
 
                 this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
                     [client.UDN]: {
                         type: 'wemo',
                         device: client,
-                        state: ( value == 1 )
+                        state: null
                     }
                 });
 
-            }.bind(this));
+                // todo: how do we correctly replace and clean up?
+                //var existing = clients[deviceInfo.serialNumber];
+                //if (existing) {
+                //    existing.on('error', null);
+                //    existing.on('binaryState', null);
+                //    //existing.destroy();
+                //}
+
+                client.on('error', function(err) {
+                    console.log(deviceInfo.friendlyName, deviceInfo.serialNumber, 'Error: %s', err.code);
+                });
+
+                // Handle BinaryState events
+                client.on('binaryState', function(value) {
+                    console.log(client.device.friendlyName, ' changed to', value == 1 ? 'on' : 'off');
+
+                    this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
+                        [client.UDN]: {
+                            type: 'wemo',
+                            device: client,
+                            state: ( value == 1 )
+                        }
+                    });
+
+                }.bind(this));
+            } catch (deviceError) {
+                console.error('[Wemo Plugin] ❌ Error setting up device:', deviceInfo.friendlyName || 'Unknown');
+                console.error('[Wemo Plugin] Device setup error:', deviceError);
+                // Continue with discovery - don't throw, just log and move on
+            }
         }.bind(this));
     }
 

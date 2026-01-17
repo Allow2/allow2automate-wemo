@@ -25,9 +25,14 @@ import Button from '@material-ui/core/Button';
 import Tabs from '@material-ui/core/Tabs';
 import Tab from '@material-ui/core/Tab';
 import Box from '@material-ui/core/Box';
+import TextField from '@material-ui/core/TextField';
+import CircularProgress from '@material-ui/core/CircularProgress';
+import Typography from '@material-ui/core/Typography';
+import Alert from '@material-ui/lab/Alert';
+import Badge from '@material-ui/core/Badge';
 import {deviceTokens, deviceImages} from '../constants';
 import Checkbox from './Checkbox';
-// import Avatar from '@material-ui/core/Avatar';
+import Avatar from '@material-ui/core/Avatar';
 
 // var dialogs = Dialogs({});
 
@@ -37,7 +42,11 @@ class TabContent extends Component {
         super(...args);
 
         this.state = {
-            currentTab: 0
+            currentTab: 0,
+            manualIP: '',
+            isAddingDevice: false,
+            addDeviceError: null,
+            addDeviceSuccess: null
         };
 
         // this.props.ipc.on('setBinaryStateResponse', function (event, UDN, err, response) {
@@ -57,17 +66,90 @@ class TabContent extends Component {
         this.setState({ currentTab: newValue });
     };
 
+    handleIPChange = (event) => {
+        this.setState({
+            manualIP: event.target.value,
+            addDeviceError: null,
+            addDeviceSuccess: null
+        });
+    };
+
+    handleAddDeviceByIP = async () => {
+        const { manualIP } = this.state;
+
+        if (!manualIP || !manualIP.trim()) {
+            this.setState({ addDeviceError: 'Please enter an IP address' });
+            return;
+        }
+
+        // Basic IP validation
+        const ipPattern = /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/;
+        if (!ipPattern.test(manualIP.trim())) {
+            this.setState({ addDeviceError: 'Please enter a valid IP address (e.g., 192.168.1.100 or 192.168.1.100:49153)' });
+            return;
+        }
+
+        this.setState({
+            isAddingDevice: true,
+            addDeviceError: null,
+            addDeviceSuccess: null
+        });
+
+        try {
+            const [err, result] = await this.props.ipc.invoke('addDeviceByIP', {
+                ipAddress: manualIP.trim()
+            });
+
+            if (err) {
+                this.setState({
+                    isAddingDevice: false,
+                    addDeviceError: err.message || 'Failed to add device'
+                });
+                return;
+            }
+
+            if (result && result.success) {
+                this.setState({
+                    isAddingDevice: false,
+                    addDeviceSuccess: `Successfully added: ${result.deviceInfo.friendlyName} (${result.deviceInfo.modelName})`,
+                    manualIP: ''
+                });
+
+                // Clear success message after 5 seconds
+                setTimeout(() => {
+                    this.setState({ addDeviceSuccess: null });
+                }, 5000);
+            } else {
+                this.setState({
+                    isAddingDevice: false,
+                    addDeviceError: (result && result.error) || 'Failed to connect to device'
+                });
+            }
+        } catch (error) {
+            console.error('[Wemo TabContent] Error adding device:', error);
+            this.setState({
+                isAddingDevice: false,
+                addDeviceError: error.message || 'An error occurred'
+            });
+        }
+    };
+
+    handleKeyPress = (event) => {
+        if (event.key === 'Enter' && !this.state.isAddingDevice) {
+            this.handleAddDeviceByIP();
+        }
+    };
+
     async toggleCheckbox(device, isChecked) {
-        //this.props.onDeviceActive( device.device.UDN, true );
         let newData = Object.assign({}, this.props.data);
         var newDevices = (this.props.data.devices || {});
-        newDevices[device.device.UDN] = newDevices[device.device.UDN] || {};
-        newDevices[device.device.UDN].active = isChecked;
+        newDevices[device.UDN] = newDevices[device.UDN] || {};
+        newDevices[device.UDN].active = isChecked;
         newData.devices = newDevices;
         this.props.configurationUpdate(newData);
         console.log('ipcRenderer', this.props.ipc);
 	    const { err, result } = await this.props.ipc.invoke('setBinaryState', {
-            UDN: device.device.UDN,
+            UDN: device.UDN,
             state: isChecked ? 1 : 0
         });
 	    console.log(err, result);
@@ -76,9 +158,85 @@ class TabContent extends Component {
         }
     }
 
-    assign(device, token) {
-        console.log(device, token);
-        this.props.assign(device, token);
+    async assign(device, token) {
+        console.log('[Wemo TabContent] assign called', device, token);
+
+        // Get current pairing for this device
+        const pairings = this.props.data.pairings || {};
+        const currentPairing = pairings[device.UDN];
+        const currentChildId = (currentPairing && currentPairing.ChildId) || null;
+
+        // Open child picker with current selection
+        const result = await this.props.assign(device, token, {
+            currentSelection: currentChildId,
+            allowClear: !!currentPairing  // Only show clear if already paired
+        });
+
+        console.log('[Wemo TabContent] Child picker result:', result);
+
+        if (result.cancelled) {
+            // User cancelled - do nothing
+            return;
+        }
+
+        if (result.cleared) {
+            // User cleared the assignment - remove pairing
+            try {
+                const unpairResult = await this.props.globalIpc.invoke('unpairDevice', {
+                    deviceId: device.UDN
+                });
+
+                if (unpairResult.success) {
+                    // Update local plugin config
+                    const newPairings = { ...pairings };
+                    delete newPairings[device.UDN];
+
+                    const newData = {
+                        ...this.props.data,
+                        pairings: newPairings
+                    };
+                    this.props.configurationUpdate(newData);
+                    console.log('[Wemo TabContent] Pairing cleared for', device.friendlyName);
+                } else {
+                    console.error('[Wemo TabContent] Failed to unpair:', unpairResult.error);
+                }
+            } catch (error) {
+                console.error('[Wemo TabContent] Error clearing pairing:', error);
+            }
+            return;
+        }
+
+        if (result.selected && result.childId) {
+            // User selected a child - create pairing
+            try {
+                const pairResult = await this.props.globalIpc.invoke('pairDevice', {
+                    deviceId: device.UDN,
+                    deviceName: device.friendlyName,
+                    token: token,
+                    childId: result.childId
+                });
+
+                if (pairResult.success) {
+                    // Update local plugin config with new pairing
+                    const newPairings = {
+                        ...pairings,
+                        [device.UDN]: pairResult.pairing
+                    };
+
+                    const newData = {
+                        ...this.props.data,
+                        pairings: newPairings
+                    };
+                    this.props.configurationUpdate(newData);
+                    console.log('[Wemo TabContent] Paired', device.friendlyName, 'to', result.childName);
+                } else {
+                    console.error('[Wemo TabContent] Failed to pair:', pairResult.error);
+                    // TODO: Show error toast
+                }
+            } catch (error) {
+                console.error('[Wemo TabContent] Error creating pairing:', error);
+            }
+        }
     }
 
     render() {
@@ -96,10 +254,11 @@ class TabContent extends Component {
 
         let devices = Object
             .values(this.props.data.devices || [])
-            .sort((a,b) => a.device.device.friendlyName.localeCompare(b.device.device.friendlyName))
+            .filter(device => device && device.friendlyName) // Filter out invalid devices
+            .sort((a,b) => (a.friendlyName || '').localeCompare(b.friendlyName || ''))
             .reduce(function(memo, device) {
 
-            let token = deviceTokens[device.device.device.modelName];
+            let token = deviceTokens[device.modelName];
             if (token) {
                 memo.supported.push(device);
             } else {
@@ -108,25 +267,47 @@ class TabContent extends Component {
             return memo;
         }, { supported: [], notSupported: [] });
         //console.log('wemo TabContent', key, this.props.data.devices, this.props.data.pairings);
-        let pairings = this.props.data.pairings;
+        let pairings = this.props.data.pairings || {};
         const plugin = this.props.plugin;
         const pluginDir = this.props.pluginDir;
-        const { currentTab } = this.state;
+        const { currentTab, manualIP, isAddingDevice, addDeviceError, addDeviceSuccess } = this.state;
         // const Checkbox = this.props.Checkbox;
+
+        // Calculate tab index for Unsupported - it shifts based on whether there are unsupported devices
+        const unsupportedTabIndex = 1;
+        const addDeviceTabIndex = devices.notSupported.length > 0 ? 2 : 1;
 
         return (
             <div>
-                {/* Tabs for Devices and Unsupported */}
+                {/* Tabs for Devices, Unsupported, and Add Device */}
                 <Tabs
                     value={currentTab}
                     onChange={this.handleTabChange}
                     indicatorColor="primary"
                     textColor="primary"
                 >
-                    <Tab label="Devices" />
+                    <Tab label={
+                        <Badge
+                            badgeContent={devices.supported.length}
+                            color="primary"
+                            showZero
+                            style={{ paddingRight: devices.supported.length > 0 ? '12px' : '0' }}
+                        >
+                            Devices
+                        </Badge>
+                    } />
                     {devices.notSupported.length > 0 && (
-                        <Tab label="Unsupported" />
+                        <Tab label={
+                            <Badge
+                                badgeContent={devices.notSupported.length}
+                                color="secondary"
+                                style={{ paddingRight: '12px' }}
+                            >
+                                Unsupported
+                            </Badge>
+                        } />
                     )}
+                    <Tab label="Add Device" />
                 </Tabs>
 
                 {/* Devices Tab */}
@@ -136,22 +317,25 @@ class TabContent extends Component {
                             <div style={{ textAlign: "center" }}>
                                 <h1>No Devices Found</h1>
                                 <p style={{ width:"75%", margin: "auto" }}>Allow2Automate will auto-discover Wemo devices on your network and list them here when found.</p>
+                                <p style={{ width:"75%", margin: "auto", marginTop: "10px", color: "#666" }}>
+                                    You can also manually add devices by IP address in the "Add Device" tab.
+                                </p>
                             </div>
                         )}
                         { devices.supported.length > 0 && (
                         <Table>
                     <TableBody>
                         { devices.supported.map(function (device) {
-                                let token = deviceTokens[device.device.device.modelName];
-                                let imageName = deviceImages[device.device.device.modelName];
-                                let paired = pairings[device.device.UDN];
+                                let token = deviceTokens[device.modelName];
+                                let imageName = deviceImages[device.modelName];
+                                let paired = pairings[device.UDN];
                                 let child = paired && paired.ChildId && this.props.children[paired.ChildId];
                                 let detail = child ? (
                                     <b>{child.name}</b>
                                 ) : <b>Paired</b>;
                                 let url = child && allow2.avatarURL(null, child);
                                 return (
-                                    <TableRow key={device.device.UDN}>
+                                    <TableRow key={device.UDN}>
                                         <TableCell>
                                             { imageName &&
                                             <img width="40" height="40"
@@ -160,11 +344,11 @@ class TabContent extends Component {
                                         </TableCell>
                                         <TableCell>
                                             { token &&
-                                            <span>{ device.device.device.friendlyName }</span>
+                                            <span>{ device.friendlyName }</span>
                                             }
                                             { !token &&
                                             <span><i
-                                                style={{ color: '#555555' }}>{ device.device.device.friendlyName }</i></span>
+                                                style={{ color: '#555555' }}>{ device.friendlyName }</i></span>
                                             }
                                         </TableCell>
                                         <TableCell style={{textAlign: 'center'}}>
@@ -183,7 +367,7 @@ class TabContent extends Component {
                                             { paired && detail }
                                             { !paired &&
                                             <Button label="Assign"
-                                                    onClick={this.assign.bind(this, device.device, token)} >Assign</Button>
+                                                    onClick={this.assign.bind(this, device, token)} >Assign</Button>
                                             }
                                         </TableCell>
                                     </TableRow>
@@ -197,29 +381,29 @@ class TabContent extends Component {
                 )}
 
                 {/* Unsupported Tab */}
-                {currentTab === 1 && devices.notSupported.length > 0 && (
+                {currentTab === unsupportedTabIndex && devices.notSupported.length > 0 && (
                     <Box p={3}>
                         <h2>Unsupported Devices</h2>
                         <p>If you would like any of these devices supported, please contact us at support@allow2.com.</p>
                         <Table>
                             <TableBody>
                                 {devices.notSupported.map((device) => {
-                                    let imageName = deviceImages[device.device.device.modelName];
+                                    let imageName = deviceImages[device.modelName];
                                     return (
-                                        <TableRow key={device.device.UDN}>
+                                        <TableRow key={device.UDN}>
                                             <TableCell>
                                                 {imageName &&
                                                 <img width="40" height="40" src={ `file://${path.join(pluginDir, 'img', imageName + '.png')}` }/>
                                                 }
                                             </TableCell>
                                             <TableCell>
-                                                {device.device.device.friendlyName}
+                                                {device.friendlyName}
                                             </TableCell>
                                             <TableCell>
-                                                {device.device.device.modelName}
+                                                {device.modelName}
                                             </TableCell>
                                             <TableCell>
-                                                {device.device.device.modelNumber}
+                                                {device.modelNumber}
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -227,6 +411,96 @@ class TabContent extends Component {
                                 }
                             </TableBody>
                         </Table>
+                    </Box>
+                )}
+
+                {/* Add Device Tab */}
+                {currentTab === addDeviceTabIndex && (
+                    <Box p={3}>
+                        <Typography variant="h5" gutterBottom>
+                            Add Device by IP Address
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary" paragraph>
+                            If auto-discovery doesn't find your Wemo device, you can add it manually by entering its IP address.
+                            The device will be added to the appropriate list based on whether it's a supported model.
+                        </Typography>
+
+                        <Box
+                            display="flex"
+                            alignItems="center"
+                            style={{ marginTop: '20px', marginBottom: '20px' }}
+                        >
+                            <TextField
+                                label="IP Address"
+                                placeholder="e.g., 192.168.1.100 or 192.168.1.100:49153"
+                                variant="outlined"
+                                value={manualIP}
+                                onChange={this.handleIPChange}
+                                onKeyPress={this.handleKeyPress}
+                                disabled={isAddingDevice}
+                                style={{ width: '300px', marginRight: '16px' }}
+                                helperText="Enter IP address, optionally with port (default: 49153)"
+                            />
+                            <Button
+                                variant="contained"
+                                color="primary"
+                                onClick={this.handleAddDeviceByIP}
+                                disabled={isAddingDevice || !manualIP.trim()}
+                            >
+                                {isAddingDevice ? (
+                                    <>
+                                        <CircularProgress size={20} style={{ marginRight: '8px' }} color="inherit" />
+                                        Connecting...
+                                    </>
+                                ) : (
+                                    'Add Device'
+                                )}
+                            </Button>
+                        </Box>
+
+                        {addDeviceError && (
+                            <Alert severity="error" style={{ marginBottom: '16px' }}>
+                                {addDeviceError}
+                            </Alert>
+                        )}
+
+                        {addDeviceSuccess && (
+                            <Alert severity="success" style={{ marginBottom: '16px' }}>
+                                {addDeviceSuccess}
+                            </Alert>
+                        )}
+
+                        <Box style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                            <Typography variant="subtitle2" gutterBottom>
+                                Tips for finding your Wemo's IP address:
+                            </Typography>
+                            <Typography variant="body2" component="ul" style={{ paddingLeft: '20px', margin: 0 }}>
+                                <li>Check your router's admin page for connected devices</li>
+                                <li>Use the Wemo app to view device information</li>
+                                <li>Use a network scanner app to find devices on your network</li>
+                                <li>Common Wemo ports are 49153 and 49152</li>
+                            </Typography>
+                        </Box>
+
+                        {/* Show manually added devices */}
+                        {this.props.data.manualDevices && this.props.data.manualDevices.length > 0 && (
+                            <Box style={{ marginTop: '24px' }}>
+                                <Typography variant="h6" gutterBottom>
+                                    Manually Added Devices
+                                </Typography>
+                                <Table size="small">
+                                    <TableBody>
+                                        {this.props.data.manualDevices.map((device) => (
+                                            <TableRow key={device.ipAddress}>
+                                                <TableCell>{device.friendlyName || 'Unknown'}</TableCell>
+                                                <TableCell>{device.ipAddress}:{device.port}</TableCell>
+                                                <TableCell>{device.UDN}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </Box>
+                        )}
                     </Box>
                 )}
             </div>

@@ -84,10 +84,18 @@ export default class Wemo {
                 console.error('[Wemo Plugin] Created client for UDN:', client.UDN);
                 this.clients[client.UDN] = client;
 
+                // Only pass serializable device info, not the client instance
                 this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
                     [client.UDN]: {
                         type: 'wemo',
-                        device: client,
+                        UDN: client.UDN,
+                        friendlyName: deviceInfo.friendlyName,
+                        modelName: deviceInfo.modelName,
+                        modelNumber: deviceInfo.modelNumber,
+                        serialNumber: deviceInfo.serialNumber,
+                        deviceType: deviceInfo.deviceType,
+                        host: deviceInfo.host,
+                        port: deviceInfo.port,
                         state: null
                     }
                 });
@@ -108,10 +116,18 @@ export default class Wemo {
                 client.on('binaryState', function(value) {
                     console.log(client.device.friendlyName, ' changed to', value == 1 ? 'on' : 'off');
 
+                    // Only pass serializable device info, not the client instance
                     this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
                         [client.UDN]: {
                             type: 'wemo',
-                            device: client,
+                            UDN: client.UDN,
+                            friendlyName: client.device.friendlyName,
+                            modelName: client.device.modelName,
+                            modelNumber: client.device.modelNumber,
+                            serialNumber: client.device.serialNumber,
+                            deviceType: client.deviceType,
+                            host: client.host,
+                            port: client.port,
                             state: ( value == 1 )
                         }
                     });
@@ -139,6 +155,155 @@ export default class Wemo {
 		    	resolve(result);
 		    });
 	    });
+    }
+
+    /**
+     * Load a device by IP address using wemo.load() instead of discovery
+     * Tries common Wemo ports (49153, 49152) if no port specified
+     * @param {string} ipAddress - IP address of the device (can include port like "192.168.1.100:49153")
+     * @returns {Promise<{success: boolean, deviceInfo?: object, error?: string}>}
+     */
+    loadDeviceByIP(ipAddress) {
+        return new Promise((resolve) => {
+            if (!ipAddress) {
+                return resolve({ success: false, error: 'IP address is required' });
+            }
+
+            // Parse IP and port
+            let ip = ipAddress.trim();
+            let ports = [49153, 49152]; // Common Wemo ports
+
+            // Check if port is included in the IP
+            if (ip.includes(':')) {
+                const parts = ip.split(':');
+                ip = parts[0];
+                const specifiedPort = parseInt(parts[1], 10);
+                if (!isNaN(specifiedPort)) {
+                    ports = [specifiedPort, ...ports.filter(p => p !== specifiedPort)];
+                }
+            }
+
+            console.error(`[Wemo Plugin] 🔌 Attempting to load device at IP: ${ip}, ports: ${ports.join(', ')}`);
+
+            // Try each port in sequence
+            const tryPort = (portIndex) => {
+                if (portIndex >= ports.length) {
+                    console.error(`[Wemo Plugin] ❌ Failed to connect to device at ${ip} on any port`);
+                    return resolve({
+                        success: false,
+                        error: `Could not connect to Wemo device at ${ip}. Tried ports: ${ports.join(', ')}`
+                    });
+                }
+
+                const port = ports[portIndex];
+                const setupUrl = `http://${ip}:${port}/setup.xml`;
+                console.error(`[Wemo Plugin] 🔍 Trying ${setupUrl}...`);
+
+                this.wemo.load(setupUrl, (err, deviceInfo) => {
+                    if (err) {
+                        console.error(`[Wemo Plugin] ⚠️  Port ${port} failed:`, err.message || err);
+                        // Try next port
+                        return tryPort(portIndex + 1);
+                    }
+
+                    try {
+                        console.error(`[Wemo Plugin] ✅ Device found at ${ip}:${port}:`, deviceInfo.friendlyName);
+                        console.error('[Wemo Plugin] Device details:', JSON.stringify(deviceInfo, null, 2));
+
+                        // Get the client for the found device
+                        const client = this.wemo.client(deviceInfo);
+                        console.error('[Wemo Plugin] Created client for UDN:', client.UDN);
+
+                        // Check if we already have this device
+                        if (this.clients[client.UDN]) {
+                            console.error('[Wemo Plugin] ℹ️  Device already known, updating...');
+                        }
+
+                        this.clients[client.UDN] = client;
+
+                        // Notify listener about the new device - only serializable data
+                        this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
+                            [client.UDN]: {
+                                type: 'wemo',
+                                UDN: client.UDN,
+                                friendlyName: deviceInfo.friendlyName,
+                                modelName: deviceInfo.modelName,
+                                modelNumber: deviceInfo.modelNumber,
+                                serialNumber: deviceInfo.serialNumber,
+                                deviceType: deviceInfo.deviceType,
+                                host: ip,
+                                port: port,
+                                state: null,
+                                addedManually: true
+                            }
+                        });
+
+                        // Set up event handlers (same as discovery)
+                        client.on('error', (err) => {
+                            console.log(deviceInfo.friendlyName, deviceInfo.serialNumber, 'Error: %s', err.code);
+                        });
+
+                        client.on('binaryState', (value) => {
+                            console.log(client.device.friendlyName, ' changed to', value == 1 ? 'on' : 'off');
+
+                            // Only pass serializable device info
+                            this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
+                                [client.UDN]: {
+                                    type: 'wemo',
+                                    UDN: client.UDN,
+                                    friendlyName: client.device.friendlyName,
+                                    modelName: client.device.modelName,
+                                    modelNumber: client.device.modelNumber,
+                                    serialNumber: client.device.serialNumber,
+                                    deviceType: client.deviceType,
+                                    host: ip,
+                                    port: port,
+                                    state: (value == 1),
+                                    addedManually: true
+                                }
+                            });
+                        });
+
+                        resolve({
+                            success: true,
+                            deviceInfo: {
+                                UDN: client.UDN,
+                                friendlyName: deviceInfo.friendlyName,
+                                modelName: deviceInfo.modelName,
+                                modelNumber: deviceInfo.modelNumber,
+                                serialNumber: deviceInfo.serialNumber,
+                                ipAddress: ip,
+                                port: port
+                            }
+                        });
+
+                    } catch (setupError) {
+                        console.error('[Wemo Plugin] ❌ Error setting up device:', setupError);
+                        resolve({
+                            success: false,
+                            error: `Device found but setup failed: ${setupError.message}`
+                        });
+                    }
+                });
+            };
+
+            // Start trying ports
+            tryPort(0);
+        });
+    }
+
+    /**
+     * Get list of manually added devices (for persistence)
+     * @returns {Array} List of manually added device info
+     */
+    getManualDevices() {
+        return Object.values(this.clients)
+            .filter(client => client.addedManually)
+            .map(client => ({
+                UDN: client.UDN,
+                ipAddress: client.ipAddress,
+                port: client.port
+            }));
     }
 
 }

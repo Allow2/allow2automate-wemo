@@ -52,8 +52,29 @@ function plugin(context) {
         });
 
         console.error('[Wemo Plugin] Wemo instance created, discovery should be running');
+
+        // Reload any manually added devices from saved state
+        if (state.manualDevices && state.manualDevices.length > 0) {
+            console.error('[Wemo Plugin] 🔄 Reloading', state.manualDevices.length, 'manually added devices...');
+            for (const manualDevice of state.manualDevices) {
+                const ipWithPort = manualDevice.port
+                    ? `${manualDevice.ipAddress}:${manualDevice.port}`
+                    : manualDevice.ipAddress;
+                console.error('[Wemo Plugin] Reloading device:', manualDevice.friendlyName || ipWithPort);
+                devices.loadDeviceByIP(ipWithPort).then(result => {
+                    if (result.success) {
+                        console.error('[Wemo Plugin] ✅ Successfully reloaded:', result.deviceInfo.friendlyName);
+                    } else {
+                        console.error('[Wemo Plugin] ⚠️  Failed to reload device at', ipWithPort, ':', result.error);
+                    }
+                }).catch(err => {
+                    console.error('[Wemo Plugin] ❌ Error reloading device:', err);
+                });
+            }
+        }
+
         console.log('context', context);
-        context.ipcMain.on('setBinaryState', async function(event, params) {
+        context.ipcMain.handle('setBinaryState', async function(event, params) {
             console.log('main setBinaryState', params);
             const { err, response } = devices.setBinaryState(params.UDN, params.state);
 
@@ -66,13 +87,83 @@ function plugin(context) {
             	return [new Error('Unknown Error')];
             }
 
-            var device = state.devices[params.UDN];
-            device.active = false;
-            device.state = ( response.BinaryState != '0' );
-            const devices = Object.assign(state.devices, {[params.UDN]: device} );
-            state = Object.assign(state, { devices: devices });
-            context.configurationUpdate(state);
+            // Update device state (devices now store serializable info only)
+            if (state.devices[params.UDN]) {
+                state.devices[params.UDN].state = ( response.BinaryState != '0' );
+                context.configurationUpdate(state);
+            }
 			return [null, "ok"];
+        });
+
+        // Handler for adding a device by IP address
+        context.ipcMain.handle('addDeviceByIP', async function(event, params) {
+            console.log('[Wemo Plugin] addDeviceByIP called with:', params);
+
+            if (!params || !params.ipAddress) {
+                return [null, { success: false, error: 'IP address is required' }];
+            }
+
+            try {
+                const result = await devices.loadDeviceByIP(params.ipAddress);
+                console.log('[Wemo Plugin] loadDeviceByIP result:', result);
+
+                if (result.success) {
+                    // Store the manual device info for persistence
+                    if (!state.manualDevices) {
+                        state.manualDevices = [];
+                    }
+
+                    // Check if already in manual devices list
+                    const existingIndex = state.manualDevices.findIndex(
+                        d => d.ipAddress === result.deviceInfo.ipAddress
+                    );
+                    if (existingIndex >= 0) {
+                        state.manualDevices[existingIndex] = {
+                            ipAddress: result.deviceInfo.ipAddress,
+                            port: result.deviceInfo.port,
+                            UDN: result.deviceInfo.UDN,
+                            friendlyName: result.deviceInfo.friendlyName
+                        };
+                    } else {
+                        state.manualDevices.push({
+                            ipAddress: result.deviceInfo.ipAddress,
+                            port: result.deviceInfo.port,
+                            UDN: result.deviceInfo.UDN,
+                            friendlyName: result.deviceInfo.friendlyName
+                        });
+                    }
+
+                    context.configurationUpdate(state);
+                }
+
+                return [null, result];
+            } catch (error) {
+                console.error('[Wemo Plugin] Error in addDeviceByIP:', error);
+                return [null, { success: false, error: error.message }];
+            }
+        });
+
+        // Handler to remove a manually added device
+        context.ipcMain.handle('removeManualDevice', async function(event, params) {
+            console.log('[Wemo Plugin] removeManualDevice called with:', params);
+
+            if (!params || !params.ipAddress) {
+                return [null, { success: false, error: 'IP address is required' }];
+            }
+
+            if (state.manualDevices) {
+                state.manualDevices = state.manualDevices.filter(
+                    d => d.ipAddress !== params.ipAddress
+                );
+                context.configurationUpdate(state);
+            }
+
+            return [null, { success: true }];
+        });
+
+        // Handler to get list of manually added devices
+        context.ipcMain.handle('getManualDevices', async function(event) {
+            return [null, { devices: state.manualDevices || [] }];
         });
     };
 

@@ -9,6 +9,7 @@ This plugin integrates Belkin Wemo smart devices with Allow2 parental controls, 
 ## Features
 
 - Automatic Wemo device discovery on local network
+- Manual device addition by IP address
 - Turn devices on/off remotely
 - Real-time device state monitoring
 - Event-driven triggers for device changes
@@ -16,6 +17,41 @@ This plugin integrates Belkin Wemo smart devices with Allow2 parental controls, 
 - Integration with Allow2 quota system
 - Seamless smart home automation
 - Device offline detection
+
+---
+
+## Important: Device Discovery Limitations
+
+**Some older Wemo devices may not be discovered automatically** due to changes in Wemo's SSDP/UPnP implementation over time. Belkin has made changes to the Wemo firmware and discovery protocols that can prevent older devices from responding to standard discovery broadcasts.
+
+### Workaround for Undiscovered Devices
+
+If your Wemo devices are not appearing in the device list:
+
+1. **Assign a Static IP Address to Your Wemo Device**
+   - Log into your router's admin panel
+   - Find the DHCP or LAN settings
+   - Create a DHCP reservation (static lease) for your Wemo device's MAC address
+   - This ensures your Wemo always has the same IP address
+
+2. **Manually Add the Device by IP**
+   - In the Wemo plugin, go to the **"Add Device"** tab
+   - Enter your Wemo device's IP address (e.g., `192.168.1.100` or `192.168.1.100:49153`)
+   - Click **"Add Device"**
+   - The device will be added and will persist across restarts
+
+### Finding Your Wemo's IP Address
+
+- Check your router's connected devices list
+- Use the official Wemo app to view device information
+- Use a network scanner app to find devices on your network
+- Common Wemo ports are 49153 and 49152
+
+### Why Static IPs Are Recommended
+
+Without a static IP, your Wemo device may get a different IP address after a power cycle or router restart, causing the manual connection to fail. Setting a static IP ensures reliable long-term connectivity.
+
+---
 
 ## Installation
 
@@ -256,10 +292,12 @@ npm test
 ## Troubleshooting
 
 ### Devices Not Discovered
+- **Try manual IP addition** - Go to the "Add Device" tab and enter the device's IP address directly (see "Device Discovery Limitations" section above)
+- Assign a static IP to your Wemo device in your router settings
 - Ensure Wemo devices are powered on
-- Verify devices are on the same network
-- Check firewall settings allow SSDP discovery
-- Try increasing discovery timeout
+- Verify devices are on the same network as Allow2Automate
+- Check firewall settings allow SSDP discovery (UDP port 1900)
+- Older Wemo firmware may have incompatible discovery protocols
 
 ### Device Control Fails
 - Verify device is online and responsive

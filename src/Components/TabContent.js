@@ -240,6 +240,11 @@ class TabContent extends Component {
     }
 
     render() {
+        // DEBUG: Log props on every render to trace state updates
+        console.error('[Wemo TabContent] render() called');
+        console.error('[Wemo TabContent] data.devices:', this.props.data && this.props.data.devices ?
+            Object.entries(this.props.data.devices).map(([k,v]) => `${v.friendlyName}: state=${v.state}`).join(', ') : 'none');
+
         if (!this.props || !this.props.plugin || !this.props.data) {
             return (
                 <div>

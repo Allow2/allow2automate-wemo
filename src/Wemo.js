@@ -72,6 +72,18 @@ export default class Wemo {
                 return;
             }
 
+            // Check if deviceInfo is valid (wemo-client sometimes calls callback with undefined)
+            if (!deviceInfo || !deviceInfo.friendlyName) {
+                console.error('[Wemo Plugin] ⚠️  Discovery callback with invalid deviceInfo, skipping');
+                console.error('[Wemo Plugin] Invalid deviceInfo was:', deviceInfo);
+                try {
+                    console.error('[Wemo Plugin] deviceInfo JSON:', JSON.stringify(deviceInfo, null, 2));
+                } catch (e) {
+                    console.error('[Wemo Plugin] Could not stringify deviceInfo:', e.message);
+                }
+                return;
+            }
+
             // Wrap device setup in try-catch to prevent one device from blocking others
             try {
                 console.error('[Wemo Plugin] ✅✅✅ DEVICE FOUND:', deviceInfo.friendlyName, deviceInfo.serialNumber);
@@ -114,7 +126,7 @@ export default class Wemo {
 
                 // Handle BinaryState events
                 client.on('binaryState', function(value) {
-                    console.log(client.device.friendlyName, ' changed to', value == 1 ? 'on' : 'off');
+                    console.log(client.device.friendlyName, ' binaryState changed to', value == 1 ? 'on' : 'off');
 
                     // Only pass serializable device info, not the client instance
                     this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
@@ -133,6 +145,33 @@ export default class Wemo {
                     });
 
                 }.bind(this));
+
+                // Handle attributeList events (some Wemo devices send Switch changes via attributeList)
+                client.on('attributeList', function(name, value, prevalue, ts) {
+                    console.log(client.device.friendlyName, ' attributeList:', name, '=', value, '(was', prevalue, ')');
+
+                    // Handle Switch attribute changes (equivalent to binaryState)
+                    if (name === 'Switch') {
+                        const isOn = value === '1' || value === 1;
+                        console.log(client.device.friendlyName, ' Switch changed to', isOn ? 'on' : 'off');
+
+                        // Only pass serializable device info, not the client instance
+                        this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
+                            [client.UDN]: {
+                                type: 'wemo',
+                                UDN: client.UDN,
+                                friendlyName: client.device.friendlyName,
+                                modelName: client.device.modelName,
+                                modelNumber: client.device.modelNumber,
+                                serialNumber: client.device.serialNumber,
+                                deviceType: client.deviceType,
+                                host: client.host,
+                                port: client.port,
+                                state: isOn
+                            }
+                        });
+                    }
+                }.bind(this));
             } catch (deviceError) {
                 console.error('[Wemo Plugin] ❌ Error setting up device:', deviceInfo.friendlyName || 'Unknown');
                 console.error('[Wemo Plugin] Device setup error:', deviceError);
@@ -145,10 +184,10 @@ export default class Wemo {
 	    return new Promise((resolve, reject) => {
 		    let client = this.clients[udn];
 		    if (!client) {
-			    return callback && reject(new Error('not visible'));
+			    return reject(new Error('Device not visible - may need to be rediscovered'));
 		    }
 		    client.setBinaryState(binaryState, (err, result) => {
-		    	console.log(err, result);
+		    	console.log('setBinaryState result:', err, result);
 		    	if (err) {
 				    return reject(err);
 			    }
@@ -244,7 +283,7 @@ export default class Wemo {
                         });
 
                         client.on('binaryState', (value) => {
-                            console.log(client.device.friendlyName, ' changed to', value == 1 ? 'on' : 'off');
+                            console.log(client.device.friendlyName, ' binaryState changed to', value == 1 ? 'on' : 'off');
 
                             // Only pass serializable device info
                             this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
@@ -262,6 +301,34 @@ export default class Wemo {
                                     addedManually: true
                                 }
                             });
+                        });
+
+                        // Handle attributeList events (some Wemo devices send Switch changes via attributeList)
+                        client.on('attributeList', (name, value, prevalue, ts) => {
+                            console.log(client.device.friendlyName, ' attributeList:', name, '=', value, '(was', prevalue, ')');
+
+                            // Handle Switch attribute changes (equivalent to binaryState)
+                            if (name === 'Switch') {
+                                const isOn = value === '1' || value === 1;
+                                console.log(client.device.friendlyName, ' Switch changed to', isOn ? 'on' : 'off');
+
+                                // Only pass serializable device info
+                                this.listener && this.listener.onDeviceUpdate && this.listener.onDeviceUpdate({
+                                    [client.UDN]: {
+                                        type: 'wemo',
+                                        UDN: client.UDN,
+                                        friendlyName: client.device.friendlyName,
+                                        modelName: client.device.modelName,
+                                        modelNumber: client.device.modelNumber,
+                                        serialNumber: client.device.serialNumber,
+                                        deviceType: client.deviceType,
+                                        host: ip,
+                                        port: port,
+                                        state: isOn,
+                                        addedManually: true
+                                    }
+                                });
+                            }
                         });
 
                         resolve({

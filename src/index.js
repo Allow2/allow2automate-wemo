@@ -26,6 +26,138 @@ function plugin(context) {
 
     var devices = null;
     var state = null;
+    var usagePollingTimer = null;
+    const USAGE_POLL_INTERVAL = 10000; // 10 seconds, same as legacy
+
+    /**
+     * Check device usage with Allow2 via main app conduit
+     * Uses global.services.checkDeviceUsage() which is exposed by main.js
+     * @param {string} UDN - Device unique identifier
+     * @param {boolean} log - Whether to log usage (true) or just check (false)
+     * @returns {Promise<{allowed: boolean, error?: string}>}
+     */
+    async function checkDeviceUsage(UDN, log = false) {
+        try {
+            // Use global.services.checkDeviceUsage() exposed by main.js
+            // This is the conduit for plugins to report usage to Allow2
+            if (!global.services || !global.services.checkDeviceUsage) {
+                console.error('[Wemo Plugin] checkDeviceUsage service not available yet');
+                return { allowed: true, error: 'Service not ready' }; // Allow on error
+            }
+
+            const result = await global.services.checkDeviceUsage({
+                UDN: UDN,
+                pluginName: 'allow2automate-wemo',
+                activityId: 7,  // Activity ID for devices
+                log: log
+            });
+
+            if (!result.success) {
+                console.error(`[Wemo Plugin] checkDeviceUsage failed for ${UDN}:`, result.error);
+
+                // If pairing is invalid, remove it
+                if (result.invalidPairing && state.pairings && state.pairings[UDN]) {
+                    console.error(`[Wemo Plugin] Removing invalid pairing for ${UDN}`);
+                    const newPairings = { ...state.pairings };
+                    delete newPairings[UDN];
+                    state = { ...state, pairings: newPairings };
+                    context.configurationUpdate(state);
+                }
+
+                return { allowed: true, error: result.error }; // Allow on error to avoid blocking user
+            }
+
+            return { allowed: result.allowed, result: result.result };
+        } catch (err) {
+            console.error(`[Wemo Plugin] checkDeviceUsage exception for ${UDN}:`, err);
+            return { allowed: true, error: err.message }; // Allow on error
+        }
+    }
+
+    /**
+     * Enforce usage: turn off device if not allowed
+     * @param {string} UDN - Device unique identifier
+     */
+    async function enforceUsage(UDN) {
+        const device = state.devices && state.devices[UDN];
+        if (!device) return;
+
+        try {
+            console.log(`[Wemo Plugin] Enforcing: turning off ${device.friendlyName}`);
+            await devices.setBinaryState(UDN, 0);
+
+            // Update local state
+            if (state.devices[UDN]) {
+                state.devices[UDN] = { ...state.devices[UDN], state: false };
+                state = { ...state, devices: { ...state.devices } };
+                context.configurationUpdate(state);
+            }
+        } catch (err) {
+            console.error(`[Wemo Plugin] Failed to turn off ${device.friendlyName}:`, err);
+        }
+    }
+
+    /**
+     * Handle device state change - check Allow2 when device turns ON
+     * @param {string} UDN - Device unique identifier
+     * @param {object} deviceData - Device data including state
+     */
+    async function handleDeviceStateChange(UDN, deviceData) {
+        // Only check when device turns ON
+        if (!deviceData.state) return;
+
+        // Only check if device is paired
+        const pairing = state.pairings && state.pairings[UDN];
+        if (!pairing) {
+            console.log(`[Wemo Plugin] Device ${deviceData.friendlyName} turned ON but not paired, skipping usage check`);
+            return;
+        }
+
+        console.log(`[Wemo Plugin] Device ${deviceData.friendlyName} turned ON, checking Allow2 (log: false)...`);
+
+        // Initial check without logging
+        const checkResult = await checkDeviceUsage(UDN, false);
+
+        if (!checkResult.allowed) {
+            console.log(`[Wemo Plugin] Device ${deviceData.friendlyName} NOT ALLOWED, enforcing...`);
+            await enforceUsage(UDN);
+        } else {
+            console.log(`[Wemo Plugin] Device ${deviceData.friendlyName} is allowed`);
+        }
+    }
+
+    /**
+     * Poll usage for all ON devices with pairings
+     * Called every 10 seconds to report usage and enforce limits
+     */
+    async function pollUsage() {
+        if (!state || !state.devices || !state.pairings) return;
+
+        // Find all ON devices that are paired
+        const onDevices = Object.entries(state.devices).filter(([udn, device]) => {
+            return device.state === true && state.pairings[udn];
+        });
+
+        if (onDevices.length === 0) return;
+
+        console.log(`[Wemo Plugin] Polling usage for ${onDevices.length} ON device(s)...`);
+
+        for (const [udn, device] of onDevices) {
+            try {
+                // Check AND log usage (log: true)
+                const checkResult = await checkDeviceUsage(udn, true);
+
+                if (!checkResult.allowed) {
+                    console.log(`[Wemo Plugin] ${device.friendlyName} NOT ALLOWED during poll, enforcing...`);
+                    await enforceUsage(udn);
+                } else {
+                    console.log(`[Wemo Plugin] ${device.friendlyName} usage logged, still allowed`);
+                }
+            } catch (err) {
+                console.error(`[Wemo Plugin] Error polling usage for ${device.friendlyName}:`, err);
+            }
+        }
+    }
 
     //
     // onLoad (advisable): called on the main process when this plugin is loaded, the existing configuration is supplied if it exists
@@ -39,17 +171,39 @@ function plugin(context) {
         if (!state.devices) {
             state.devices = {};
         }
+        if (!state.pairings) {
+            state.pairings = {};
+        }
 
         console.error('[Wemo Plugin] Creating Wemo discovery instance...');
         devices = new Wemo({
             onDeviceUpdate: (data) => {
                 console.error('[Wemo Plugin] 📡 Device update callback:', Object.keys(data));
-                console.log('deviceUpdate', data, state);
-                const devices = Object.assign(state.devices, data);
-                state = Object.assign(state, { devices: devices });
+                // Log the incoming state change and check for ON transitions
+                for (const [udn, deviceData] of Object.entries(data)) {
+                    const previousState = state.devices[udn] && state.devices[udn].state;
+                    console.error(`[Wemo Plugin] Device ${deviceData.friendlyName} state update: ${previousState} -> ${deviceData.state}`);
+
+                    // Check if device just turned ON (state changed from false/null to true)
+                    if (deviceData.state === true && previousState !== true) {
+                        // Handle state change asynchronously (don't block the update)
+                        handleDeviceStateChange(udn, deviceData).catch(err => {
+                            console.error(`[Wemo Plugin] Error handling state change for ${deviceData.friendlyName}:`, err);
+                        });
+                    }
+                }
+                // Create NEW objects to ensure React detects the state change
+                const newDevices = { ...state.devices, ...data };
+                state = { ...state, devices: newDevices };
+                console.error('[Wemo Plugin] Calling configurationUpdate with state.devices:',
+                    Object.entries(state.devices).map(([k,v]) => `${v.friendlyName}: state=${v.state}`).join(', '));
                 context.configurationUpdate(state);
             }
         });
+
+        // Start usage polling timer (every 10 seconds like legacy)
+        console.error('[Wemo Plugin] Starting usage polling timer (every 10s)...');
+        usagePollingTimer = setInterval(pollUsage, USAGE_POLL_INTERVAL);
 
         console.error('[Wemo Plugin] Wemo instance created, discovery should be running');
 
@@ -76,23 +230,24 @@ function plugin(context) {
         console.log('context', context);
         context.ipcMain.handle('setBinaryState', async function(event, params) {
             console.log('main setBinaryState', params);
-            const { err, response } = devices.setBinaryState(params.UDN, params.state);
+            try {
+                const response = await devices.setBinaryState(params.UDN, params.state);
+                console.log('response:', params.UDN, response);
 
-            console.log('response:', params.UDN, err, response);
+                if (!response || response.BinaryState === undefined) {
+                    return [new Error('Unknown Error')];
+                }
 
-            if (err) {
-            	return [err];
+                // Update device state (devices now store serializable info only)
+                if (state.devices[params.UDN]) {
+                    state.devices[params.UDN].state = (response.BinaryState != '0');
+                    context.configurationUpdate(state);
+                }
+                return [null, "ok"];
+            } catch (err) {
+                console.log('error:', params.UDN, err);
+                return [err.message || err];
             }
-            if (response.BinaryState === undefined) {
-            	return [new Error('Unknown Error')];
-            }
-
-            // Update device state (devices now store serializable info only)
-            if (state.devices[params.UDN]) {
-                state.devices[params.UDN].state = ( response.BinaryState != '0' );
-                context.configurationUpdate(state);
-            }
-			return [null, "ok"];
         });
 
         // Handler for adding a device by IP address
@@ -180,7 +335,29 @@ function plugin(context) {
     //
     wemo.onSetEnabled = function(enabled) {
         console.log('wemo.onSetEnabled', enabled);
-        // nop
+
+        if (enabled) {
+            // Start usage polling if not already running
+            if (!usagePollingTimer) {
+                console.log('[Wemo Plugin] Starting usage polling timer');
+                usagePollingTimer = setInterval(pollUsage, USAGE_POLL_INTERVAL);
+            }
+            // Enable device discovery
+            if (devices) {
+                devices.setEnabled(true);
+            }
+        } else {
+            // Stop usage polling
+            if (usagePollingTimer) {
+                console.log('[Wemo Plugin] Stopping usage polling timer');
+                clearInterval(usagePollingTimer);
+                usagePollingTimer = null;
+            }
+            // Disable device discovery
+            if (devices) {
+                devices.setEnabled(false);
+            }
+        }
     };
 
     //
@@ -188,7 +365,14 @@ function plugin(context) {
     //
     wemo.onUnload = function(callback) {
         console.log('wemo.onUnload');
-        // nop
+
+        // Stop usage polling timer
+        if (usagePollingTimer) {
+            console.log('[Wemo Plugin] Cleaning up usage polling timer');
+            clearInterval(usagePollingTimer);
+            usagePollingTimer = null;
+        }
+
         callback(null);
     };
 

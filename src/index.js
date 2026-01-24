@@ -19,6 +19,10 @@
 'use strict';
 import TabContent from './Components/TabContent';
 import Wemo from './Wemo';
+import { deviceTokens } from './constants';
+
+// Plugin device token for Allow2 (used for auto-provisioning)
+const PLUGIN_TOKEN = '2ndlJj1Mg2Pw8iHi';
 
 function plugin(context) {
 
@@ -45,11 +49,24 @@ function plugin(context) {
                 return { allowed: true, error: 'Service not ready' }; // Allow on error
             }
 
+            // Get device info for auto-provisioning
+            const device = state.devices && state.devices[UDN];
+            const deviceName = device ? device.friendlyName : UDN;
+            const deviceModelToken = device && deviceTokens[device.modelName] ? deviceTokens[device.modelName] : PLUGIN_TOKEN;
+
+            // Get childId from existing pairing (if any) for auto-provisioning
+            const pairing = state.pairings && state.pairings[UDN];
+            const childId = pairing ? pairing.ChildId : null;
+
             const result = await global.services.checkDeviceUsage({
                 UDN: UDN,
                 pluginName: 'allow2automate-wemo',
                 activityId: 7,  // Activity ID for devices
-                log: log
+                log: log,
+                // Additional params for auto-provisioning (if no valid pairing exists)
+                deviceName: deviceName,
+                deviceToken: deviceModelToken,
+                childId: childId
             });
 
             if (!result.success) {
@@ -64,7 +81,28 @@ function plugin(context) {
                     context.configurationUpdate(state);
                 }
 
+                // Update device with error status
+                updateDeviceStatus(UDN, {
+                    statusType: 'error',
+                    statusMessage: 'Error',
+                    statusDetail: result.error,
+                    statusColor: 'gray'
+                });
+
                 return { allowed: true, error: result.error }; // Allow on error to avoid blocking user
+            }
+
+            // Enrich Allow2 response with human-readable status messages
+            if (result.result && result.result.activities && global.services.allow2Status) {
+                const enrichedResult = global.services.allow2Status.enrichResponse(result.result);
+                const overallStatus = global.services.allow2Status.getOverallStatus(enrichedResult.activities);
+
+                // Store enriched status in device state for UI display
+                updateDeviceStatus(UDN, {
+                    ...overallStatus,
+                    activities: enrichedResult.activities,
+                    lastChecked: Date.now()
+                });
             }
 
             return { allowed: result.allowed, result: result.result };
@@ -72,6 +110,22 @@ function plugin(context) {
             console.error(`[Wemo Plugin] checkDeviceUsage exception for ${UDN}:`, err);
             return { allowed: true, error: err.message }; // Allow on error
         }
+    }
+
+    /**
+     * Update device status for UI display
+     * @param {string} UDN - Device unique identifier
+     * @param {object} statusData - Status data including statusMessage, statusType, statusColor
+     */
+    function updateDeviceStatus(UDN, statusData) {
+        if (!state.devices || !state.devices[UDN]) return;
+
+        state.devices[UDN] = {
+            ...state.devices[UDN],
+            allow2Status: statusData
+        };
+        state = { ...state, devices: { ...state.devices } };
+        context.configurationUpdate(state);
     }
 
     /**

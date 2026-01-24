@@ -19,6 +19,7 @@ import React, { Component } from 'react';
 import path from 'path';
 import Table from '@material-ui/core/Table';
 import TableBody from '@material-ui/core/TableBody';
+import TableHead from '@material-ui/core/TableHead';
 import TableRow from '@material-ui/core/TableRow';
 import TableCell from '@material-ui/core/TableCell';
 import Button from '@material-ui/core/Button';
@@ -30,9 +31,22 @@ import CircularProgress from '@material-ui/core/CircularProgress';
 import Typography from '@material-ui/core/Typography';
 import Alert from '@material-ui/lab/Alert';
 import Badge from '@material-ui/core/Badge';
+import Chip from '@material-ui/core/Chip';
+import Tooltip from '@material-ui/core/Tooltip';
+import Snackbar from '@material-ui/core/Snackbar';
+import IconButton from '@material-ui/core/IconButton';
+import CloseIcon from '@material-ui/icons/Close';
 import {deviceTokens, deviceImages} from '../constants';
 import Checkbox from './Checkbox';
 import Avatar from '@material-ui/core/Avatar';
+
+// Status color mapping
+const STATUS_COLORS = {
+    green: '#4caf50',
+    orange: '#ff9800',
+    red: '#f44336',
+    gray: '#9e9e9e'
+};
 
 // var dialogs = Dialogs({});
 
@@ -46,7 +60,9 @@ class TabContent extends Component {
             manualIP: '',
             isAddingDevice: false,
             addDeviceError: null,
-            addDeviceSuccess: null
+            addDeviceSuccess: null,
+            snackbarOpen: false,
+            snackbarMessage: ''
         };
 
         // this.props.ipc.on('setBinaryStateResponse', function (event, UDN, err, response) {
@@ -137,6 +153,48 @@ class TabContent extends Component {
     handleKeyPress = (event) => {
         if (event.key === 'Enter' && !this.state.isAddingDevice) {
             this.handleAddDeviceByIP();
+        }
+    };
+
+    handleCloseSnackbar = () => {
+        this.setState({ snackbarOpen: false });
+    };
+
+    copyErrorToClipboard = (deviceName, errorDetail) => {
+        const errorText = `Wemo Device: ${deviceName}\nError: ${errorDetail}\nTimestamp: ${new Date().toISOString()}`;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(errorText).then(() => {
+                this.setState({
+                    snackbarOpen: true,
+                    snackbarMessage: 'Error details copied to clipboard'
+                });
+            }).catch((err) => {
+                console.error('Failed to copy:', err);
+                this.setState({
+                    snackbarOpen: true,
+                    snackbarMessage: 'Failed to copy to clipboard'
+                });
+            });
+        } else {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = errorText;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                this.setState({
+                    snackbarOpen: true,
+                    snackbarMessage: 'Error details copied to clipboard'
+                });
+            } catch (err) {
+                this.setState({
+                    snackbarOpen: true,
+                    snackbarMessage: 'Failed to copy to clipboard'
+                });
+            }
+            document.body.removeChild(textArea);
         }
     };
 
@@ -329,6 +387,16 @@ class TabContent extends Component {
                         )}
                         { devices.supported.length > 0 && (
                         <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell></TableCell>
+                            <TableCell>Device</TableCell>
+                            <TableCell style={{textAlign: 'center'}}>On/Off</TableCell>
+                            <TableCell></TableCell>
+                            <TableCell>Child</TableCell>
+                            <TableCell style={{textAlign: 'center'}}>Status</TableCell>
+                        </TableRow>
+                    </TableHead>
                     <TableBody>
                         { devices.supported.map(function (device) {
                                 let token = deviceTokens[device.modelName];
@@ -374,6 +442,66 @@ class TabContent extends Component {
                                             <Button label="Assign"
                                                     onClick={this.assign.bind(this, device, token)} >Assign</Button>
                                             }
+                                        </TableCell>
+                                        <TableCell style={{textAlign: 'center', minWidth: '160px'}}>
+                                            { paired && device.allow2Status ? (
+                                                device.allow2Status.statusType === 'error' ? (
+                                                    <Tooltip
+                                                        title={
+                                                            <div style={{ fontSize: '12px', maxWidth: '300px' }}>
+                                                                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Error Details:</div>
+                                                                <div style={{ wordBreak: 'break-word' }}>
+                                                                    {device.allow2Status.statusDetail || 'Unknown error'}
+                                                                </div>
+                                                                <div style={{ marginTop: '8px', fontStyle: 'italic', opacity: 0.8 }}>
+                                                                    Click to copy error details
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        arrow
+                                                        interactive
+                                                    >
+                                                        <Chip
+                                                            label={device.allow2Status.statusMessage || 'Error'}
+                                                            size="small"
+                                                            onClick={() => this.copyErrorToClipboard(
+                                                                device.friendlyName,
+                                                                device.allow2Status.statusDetail || 'Unknown error'
+                                                            )}
+                                                            style={{
+                                                                backgroundColor: STATUS_COLORS[device.allow2Status.statusColor] || STATUS_COLORS.gray,
+                                                                color: 'white',
+                                                                fontWeight: 500,
+                                                                cursor: 'pointer'
+                                                            }}
+                                                        />
+                                                    </Tooltip>
+                                                ) : (
+                                                    <Tooltip
+                                                        title={device.allow2Status.statusDetail || ''}
+                                                        arrow
+                                                    >
+                                                        <Chip
+                                                            label={device.allow2Status.statusMessage || 'Unknown'}
+                                                            size="small"
+                                                            style={{
+                                                                backgroundColor: STATUS_COLORS[device.allow2Status.statusColor] || STATUS_COLORS.gray,
+                                                                color: 'white',
+                                                                fontWeight: 500
+                                                            }}
+                                                        />
+                                                    </Tooltip>
+                                                )
+                                            ) : paired ? (
+                                                <Chip
+                                                    label="Checking..."
+                                                    size="small"
+                                                    style={{
+                                                        backgroundColor: STATUS_COLORS.gray,
+                                                        color: 'white'
+                                                    }}
+                                                />
+                                            ) : null }
                                         </TableCell>
                                     </TableRow>
                                 );
@@ -508,6 +636,25 @@ class TabContent extends Component {
                         )}
                     </Box>
                 )}
+
+                {/* Snackbar for copy confirmation */}
+                <Snackbar
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+                    open={this.state.snackbarOpen}
+                    autoHideDuration={3000}
+                    onClose={this.handleCloseSnackbar}
+                    message={this.state.snackbarMessage}
+                    action={
+                        <IconButton
+                            size="small"
+                            aria-label="close"
+                            color="inherit"
+                            onClick={this.handleCloseSnackbar}
+                        >
+                            <CloseIcon fontSize="small" />
+                        </IconButton>
+                    }
+                />
             </div>
         );
     }
